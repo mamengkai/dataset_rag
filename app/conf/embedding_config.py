@@ -11,6 +11,7 @@ class EmbeddingConfig:
     api_key: str
     model: str
     dim: int
+    item_name_diag: bool
 
 
 embedding_config = EmbeddingConfig(
@@ -18,4 +19,5 @@ embedding_config = EmbeddingConfig(
     api_key=os.getenv("EMBEDDING_API_KEY") or os.getenv("OPENAI_API_KEY"),
     model=os.getenv("EMBEDDING_MODEL", "Qwen3-Embedding-8B"),
     dim=int(os.getenv("EMBEDDING_DIM", "4096")),
+    item_name_diag=os.getenv("ITEM_NAME_DIAG", "0") in ("1", "True", "true"),
 )
