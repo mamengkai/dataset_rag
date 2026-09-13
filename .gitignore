@@ -28,6 +28,7 @@ build/
 /test/
 temp-files/
 output/
+volumes/
 
 # 日志
 logs/
