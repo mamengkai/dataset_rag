@@ -1,0 +1,48 @@
+# IDE
+.idea/
+.settings/
+*.iml
+.vscode/
+
+# AI / 本地工具
+.cursor/
+.trae/
+.apex/
+.specstory/
+.ailog/
+.qoder/
+.codegraph/
+.gitnexus/
+aidocs/
+
+# 构建与临时输出
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+/test/
+temp-files/
+
+# 日志
+logs/
+*.log
+
+# 依赖
+.venv/
+venv/
+node_modules/
+
+# 密钥与本机覆盖
+.env
+.env.local
+.env.*.local
+*.pem
+
+# OS
+.DS_Store
+Thumbs.db
