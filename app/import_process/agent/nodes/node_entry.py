@@ -18,25 +18,23 @@ def node_entry(state: ImportGraphState) -> ImportGraphState:
     task_id = state.get("task_id") or ""
     add_running_task(task_id, function_name)
 
-    try:
-        local_file_path = state.get("local_file_path")
-        if not local_file_path:
-            logger.error(f">>> 执行节点错误: {function_name}, 没有输入文件，无法继续解析!")
-            return state
-
-        suffix = Path(local_file_path).suffix.lower()
-        if suffix == ".pdf":
-            state["is_pdf_read_enabled"] = True
-            state["pdf_path"] = local_file_path
-        elif suffix == ".md":
-            state["is_md_read_enabled"] = True
-            state["md_path"] = local_file_path
-        else:
-            logger.error(f">>> 执行节点错误: {function_name}, 文件格式错误，无法继续解析!")
-            return state
-
-        state["file_title"] = Path(local_file_path).stem
-        logger.info(f">>> 执行节点结束: {function_name},当前状态: {state}")
+    local_file_path = state.get("local_file_path")
+    if not local_file_path:
+        logger.error(f">>> 执行节点错误: {function_name}, 没有输入文件，无法继续解析!")
         return state
-    finally:
-        add_done_task(task_id, function_name)
+
+    suffix = Path(local_file_path).suffix.lower()
+    if suffix == ".pdf":
+        state["is_pdf_read_enabled"] = True
+        state["pdf_path"] = local_file_path
+    elif suffix == ".md":
+        state["is_md_read_enabled"] = True
+        state["md_path"] = local_file_path
+    else:
+        logger.error(f">>> 执行节点错误: {function_name}, 文件格式错误，无法继续解析!")
+        return state
+
+    state["file_title"] = Path(local_file_path).stem
+    logger.info(f">>> 执行节点结束: {function_name},当前状态: {state}")
+    add_done_task(task_id, function_name)
+    return state
