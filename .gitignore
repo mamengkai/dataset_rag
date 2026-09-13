@@ -27,6 +27,7 @@ build/
 *.egg-info/
 /test/
 temp-files/
+output/
 
 # 日志
 logs/
