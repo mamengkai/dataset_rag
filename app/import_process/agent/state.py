@@ -34,6 +34,7 @@ class ImportGraphState(TypedDict):
     md_content: str       # Markdown 的全文内容
     chunks: list          # 切片后的文本列表，包含 metadata
     item_name: str        # 识别出的主体名称 (如: "万用表")，用于增强检索
+    image_summaries: dict  # 图片文件名 -> 视觉模型生成的描述
 
     # --- 数据库相关 ---
     embeddings_content: list # 包含向量数据的列表，准备写入 Milvus
@@ -59,6 +60,7 @@ graph_default_state: ImportGraphState = {
     "md_content": "",
     "chunks": [],
     "item_name": "",
+    "image_summaries": {},
     "embeddings_content": []
 }
 
