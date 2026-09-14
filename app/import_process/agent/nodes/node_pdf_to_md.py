@@ -212,11 +212,11 @@ def node_pdf_to_md(state: ImportGraphState) -> ImportGraphState:
     except Exception as e:
         logger.error(f">>> 执行节点错误: {function_name},异常信息: {e}")
         raise
-
-    finally:
+    else:
         logger.info(f">>> 执行节点结束: {function_name},当前状态: {state}")
-        add_done_task(task_id, function_name)
         return state
+    finally:
+        add_done_task(task_id, function_name)
 
 
 if __name__ == "__main__":
