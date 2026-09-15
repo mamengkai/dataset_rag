@@ -7,6 +7,10 @@ from collections import deque
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+from minio.deleteobjects import DeleteObject
+
+from app.clients.minio_utils import get_minio_client
+from app.conf.minio_config import minio_config
 from app.core.load_prompt import load_prompt
 from app.core.logger import logger
 from app.import_process.agent.state import ImportGraphState
@@ -21,11 +25,20 @@ def is_supported_image(filename: str) -> bool:
     return os.path.splitext(filename)[1].lower() in IMAGE_EXTENSIONS
 
 
-def _image_data_url(image_path: str, image_base64: str) -> str:
+def _guess_image_mime(image_path: str) -> str:
     mime, _ = mimetypes.guess_type(image_path)
     if not mime or not mime.startswith("image/"):
-        mime = "image/jpeg"
-    return f"data:{mime};base64,{image_base64}"
+        return "image/jpeg"
+    return mime
+
+
+def _image_data_url(image_path: str, image_base64: str) -> str:
+    return f"data:{_guess_image_mime(image_path)};base64,{image_base64}"
+
+
+def _public_image_url(object_name: str) -> str:
+    scheme = "https" if minio_config.minio_secure else "http"
+    return f"{scheme}://{minio_config.endpoint}/{minio_config.bucket_name}/{object_name}"
 
 
 def step_1_get_content(state) -> Tuple[str, Path, Path]:
@@ -116,6 +129,82 @@ def step_3_generate_img_summaries(targets, stem) -> dict:
     return summaries
 
 
+def step_4_upload_images_and_replace_md(summaries, targets, md_content, stem):
+    """
+    图片上传到minio服务器，替换原md中图片和描述
+    :param summaries: 图片名: 描述
+    :param targets: (图片名, 原地址, (上文, 下文))
+    :param md_content: 原md内容
+    :param stem: 文件名
+    :return: 新md
+    """
+    minio_client = get_minio_client()
+    if minio_client is None:
+        raise RuntimeError("MinIO 客户端未初始化，请检查 MINIO_* 配置及服务是否可用")
+
+    prefix = f"{minio_config.minio_img_dir}/{stem}"
+    object_list = minio_client.list_objects(
+        minio_config.bucket_name,
+        prefix=prefix,
+        recursive=True,
+    )
+    delete_object_list = [DeleteObject(obj.object_name) for obj in object_list]
+    errors = minio_client.remove_objects(minio_config.bucket_name, delete_object_list)
+    for error in errors:
+        logger.error(
+            f"清空 MinIO 对象失败: bucket={minio_config.bucket_name}, "
+            f"object={error.name}, code={error.code}, message={error.message}"
+        )
+    logger.info(f"已经完成{stem}下对象清空，本次删除了：{len(delete_object_list)}个文件")
+
+    images_url = {}
+    for image_file, image_path, _ in targets:
+        object_name = f"{minio_config.minio_img_dir}/{stem}/{image_file}"
+        try:
+            minio_client.fput_object(
+                bucket_name=minio_config.bucket_name,
+                object_name=object_name,
+                file_path=image_path,
+                content_type=_guess_image_mime(image_path),
+            )
+            images_url[image_file] = _public_image_url(object_name)
+            logger.info(f"完成图片上传: {image_file}, 访问地址为: {images_url[image_file]}")
+        except Exception as e:
+            logger.error(f"上传图片失败: {image_file}, 失败原因: {e}")
+            raise RuntimeError(f"上传图片失败: {image_file}") from e
+
+    image_infos = {}
+    for image_file, summary in summaries.items():
+        url = images_url.get(image_file)
+        if not url:
+            raise RuntimeError(f"图片 {image_file} 已有摘要但缺少上传地址，中止替换以免混入本地路径")
+        image_infos[image_file] = (summary, url)
+    logger.info(f"图片处理汇总结果: {image_infos}")
+
+    if image_infos:
+        for image_file, (summary, url) in image_infos.items():
+            rep = re.compile(r"!\[.*?\]\(.*?" + re.escape(image_file) + r".*?\)")
+            md_content = rep.sub(f"![{summary}]({url})", md_content)
+        logger.info(f"完成md内容替换，新的内容为: {md_content}")
+
+    return md_content
+
+
+def step_5_replace_md_and_save(new_md_content, md_path_obj):
+    """
+    新md的磁盘备份
+    :param new_md_content: 新内容
+    :param md_path_obj: 旧地址
+    :return: 新地址
+    """
+    new_md_path_str = os.path.splitext(md_path_obj)[0] + "_new.md"
+    with open(new_md_path_str, "w", encoding="utf-8") as f:
+        f.write(new_md_content)
+    logger.info(f"完成新内容写入，新的地址为: {new_md_path_str}")
+
+    return new_md_path_str
+
+
 def node_md_img(state: ImportGraphState) -> ImportGraphState:
     """
     节点: 图片处理 (node_md_img) 处理 Markdown 中的图片资源 (Image)。
@@ -136,7 +225,14 @@ def node_md_img(state: ImportGraphState) -> ImportGraphState:
         targets = step_2_scan_images(md_content, images_dir_obj)
         summaries = step_3_generate_img_summaries(targets, md_path_obj.stem)
         state["image_summaries"] = summaries
-        # todo 上传图片至minio、更新md内容  数据最终处理和备份
+
+        new_md_content = step_4_upload_images_and_replace_md(summaries, targets, md_content, md_path_obj.stem)
+
+        new_md_file_path = step_5_replace_md_and_save(new_md_content, md_path_obj)
+
+        state["md_path"] = new_md_file_path
+        state["md_content"] = new_md_content
+
         return state
     except Exception as e:
         logger.error(f">>> 执行节点错误: {function_name},异常信息: {e}")
@@ -150,7 +246,7 @@ if __name__ == "__main__":
 
     logger.info(f"本地测试 - 项目根目录：{PROJECT_ROOT}")
 
-    test_md_name = os.path.join(r"output\hl3040网络说明书", "hl3040网络说明书.md")
+    test_md_name = os.path.join(r"output\hak180产品安全手册", "hak180产品安全手册.md")
     test_md_path = os.path.join(PROJECT_ROOT, test_md_name)
 
     if not os.path.exists(test_md_path):
